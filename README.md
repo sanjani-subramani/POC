@@ -85,3 +85,33 @@ Instead of discarding old messages, ask the model to compress them into a short 
 The summary replaces the old messages as one `[SUMMARY OF EARLIER CONVERSATION]` message, so key facts survive in far fewer words.
 It costs one extra API call and is lossy, since details the summary omits are gone.
 Combining both (a summary of the past plus a verbatim recent window) is a common production pattern.
+
+## Step 4: Orchestrator (`orchestrator_poc.py`)
+
+Combines Steps 1-3 into one assistant: tools, persistent vector memory (the same `notes` ChromaDB collection as Step 2), and auto-summarized history.
+
+```
+export ANTHROPIC_API_KEY=sk-ant-...
+python orchestrator_poc.py
+```
+
+Commands: `memories` (list stored memories), `history` (raw messages), `quit`. Each turn prints its stages: `RETRIEVE`, `SYSTEM PROMPT`, `LLM CALL`, `TOOL CALL`, `STORE`, `HISTORY`, then `ASSISTANT`.
+
+### Orchestrator pattern
+An orchestrator is the plain program around the model that decides what goes into each call and what happens with the result.
+The model itself stays stateless; the orchestrator supplies memory, history and tools on every request.
+Each turn runs in a fixed order: retrieve memories, build the system prompt, call the model, run tools, store new facts, trim history.
+Keeping this logic in ordinary code makes each stage easy to see, test and change.
+
+### ReAct loop
+ReAct means Reason + Act: the model reasons about the request, acts by requesting a tool, then reads the result and reasons again.
+In the API this is the `stop_reason == "tool_use"` loop: run the tool, send back a `tool_result`, and call the model again.
+The loop ends when the model returns plain text, which may take zero, one or several tool calls.
+Only the final user and assistant text is saved to history; the intermediate tool messages exist just for that turn.
+
+### How it comes together
+Retrieval adds long-term knowledge: the top 2 memories similar to the message are injected into the system prompt under `RELEVANT MEMORIES:`.
+Tools add live actions and data, such as weather or note search, that the model cannot know on its own.
+History adds short-term context, and summarization keeps it under the word limit while preserving key facts.
+After the answer, a simple heuristic (the message contains "I", "my", "we" or "our") stores the user's message as a new memory, so later sessions can recall it.
+That heuristic is deliberately crude: it also saves questions like "What is my name?", so a real system would use a smarter filter.
