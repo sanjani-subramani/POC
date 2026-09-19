@@ -1,8 +1,7 @@
-"""Minimal Claude tool-calling POC: interactive loop with two fake tools."""
+"""Minimal tool-calling POC (Groq primary, Gemini fallback): interactive loop with two fake tools."""
 import json
-import anthropic
 
-MODEL = "claude-sonnet-4-5"  # alias for the latest Sonnet 4.5 snapshot
+from llm_client import chat
 
 TOOLS = [
     {
@@ -41,36 +40,25 @@ def search_notes(query):
 FUNCTIONS = {"get_weather": get_weather, "search_notes": search_notes}
 
 
-def run_turn(client, messages):
-    response = client.messages.create(
-        model=MODEL, max_tokens=1024, tools=TOOLS, messages=messages
-    )
-    while response.stop_reason == "tool_use":
-        messages.append({"role": "assistant", "content": response.content})
-        results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-            print(f"MODEL CHOSE TOOL: {block.name} with args: {json.dumps(block.input)}")
-            try:
-                result = json.dumps(FUNCTIONS[block.name](**block.input))
-                is_error = False
-            except Exception as e:  # report failures back to the model
-                result, is_error = f"Error: {e}", True
-            print(f"TOOL RESULT: {result}")
-            results.append(
-                {"type": "tool_result", "tool_use_id": block.id, "content": result, "is_error": is_error}
-            )
-        messages.append({"role": "user", "content": results})
-        response = client.messages.create(
-            model=MODEL, max_tokens=1024, tools=TOOLS, messages=messages
-        )
-    messages.append({"role": "assistant", "content": response.content})
-    return "".join(b.text for b in response.content if b.type == "text")
+def run_turn(messages):
+    response = chat(messages, tools=TOOLS)
+    while response["type"] == "tool_use":
+        print(f"MODEL CHOSE TOOL: {response['name']} with args: {json.dumps(response['input'])}")
+        messages.append({"role": "assistant", "tool_call": {
+            "id": response["id"], "name": response["name"], "input": response["input"]}})
+        try:
+            result = json.dumps(FUNCTIONS[response["name"]](**response["input"]))
+        except Exception as e:  # report failures back to the model
+            result = f"Error: {e}"
+        print(f"TOOL RESULT: {result}")
+        messages.append({"role": "tool", "tool_call_id": response["id"],
+                         "name": response["name"], "content": result})
+        response = chat(messages, tools=TOOLS)
+    messages.append({"role": "assistant", "content": response["content"]})
+    return response["content"]
 
 
 def main():
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
     messages = []
     while True:
         user = input("\n> ").strip()
@@ -80,11 +68,12 @@ def main():
             continue
         print(f"USER: {user}")
         messages.append({"role": "user", "content": user})
+        n = len(messages)
         try:
-            print(f"FINAL RESPONSE: {run_turn(client, messages)}")
-        except anthropic.APIError as e:
+            print(f"FINAL RESPONSE: {run_turn(messages)}")
+        except Exception as e:
             print(f"API ERROR: {e}")
-            messages.pop()
+            del messages[n - 1:]  # drop the failed turn, keep roles alternating
 
 
 if __name__ == "__main__":

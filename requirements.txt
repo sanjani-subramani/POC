@@ -1,4 +1,5 @@
-anthropic>=0.40.0
+groq
+google-genai
 chromadb
 sentence-transformers
 numpy

@@ -3,23 +3,18 @@
 Keeps full history, counts words after every turn, and when the count exceeds
 MAX_TOKENS summarizes all but the last KEEP_LAST messages into one message.
 """
-import anthropic
+from llm_client import chat
 
-MODEL = "claude-sonnet-4-5"
 MAX_TOKENS = 1000  # fake limit, measured in words
 KEEP_LAST = 4
 SUMMARY_PROMPT = "Summarize this conversation so far in 2-3 sentences. Preserve key facts and decisions."
-
-client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from environment
-
 
 def count_words(history):
     return sum(len(m["content"].split()) for m in history)
 
 
 def ask(messages):
-    response = client.messages.create(model=MODEL, max_tokens=1024, messages=messages)
-    return response.content[0].text
+    return chat(messages)["content"]
 
 
 def summarize_if_needed(history):
@@ -53,7 +48,7 @@ def main():
         history.append({"role": "user", "content": user_input})
         try:
             reply = ask(history)
-        except anthropic.APIError as e:
+        except Exception as e:
             history.pop()  # keep roles alternating
             print(f"API error: {e}")
             continue

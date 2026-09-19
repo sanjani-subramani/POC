@@ -1,6 +1,21 @@
 # Tool Calling POC
 
-A minimal command-line demo of LLM **tool calling** (function calling) with Claude, using only the `anthropic` Python SDK.
+A minimal command-line demo of LLM **tool calling** (function calling) with a free LLM API: Groq as the primary provider and Google Gemini as the fallback (see `llm_client.py`).
+
+## Setup (all scripts)
+
+Both providers have a free tier, no credit card needed. Create a key at each:
+
+- **Groq** (primary): https://console.groq.com -> `GROQ_API_KEY`
+- **Gemini** (fallback): https://aistudio.google.com -> `GEMINI_API_KEY`
+
+```
+pip install -r requirements.txt
+export GROQ_API_KEY=gsk_...          # PowerShell: $env:GROQ_API_KEY="gsk_..."
+export GEMINI_API_KEY=AI...          # PowerShell: $env:GEMINI_API_KEY="AI..."
+```
+
+`llm_client.py` exposes `chat(messages, system_prompt=None, tools=None)`. It tries Groq first and, on any error (rate limit, bad request, missing key), retries on Gemini. Each call prints `PROVIDER: Groq` or `PROVIDER: Gemini (fallback)`. Both providers' tool calling is normalized to `{"type": "text", "content": ...}` or `{"type": "tool_use", "name": ..., "input": ..., "id": ...}`. Only one tool call is handled per model response. Free-tier limits are small, so rate limits are the usual reason the fallback fires.
 
 ## What it demonstrates
 
@@ -14,8 +29,6 @@ The tools return hardcoded fake data; the point is the loop, not the data.
 ## Run
 
 ```
-pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-...      # PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-..."
 python tool_calling_poc.py
 ```
 
@@ -25,7 +38,7 @@ Each step is printed: `USER`, `MODEL CHOSE TOOL`, `TOOL RESULT`, `FINAL RESPONSE
 
 ## Notes
 
-- Model is set by `MODEL` in the script (`claude-sonnet-4-5`).
+- Models are set in `llm_client.py`: `llama-3.3-70b-versatile` (Groq) and `gemini-2.0-flash` (Gemini).
 - Conversation history is kept across turns within a session.
 
 ## Step 2: Vector memory (`vector_memory_poc.py`)
@@ -57,14 +70,13 @@ The script computes the similarity manually with numpy for the top result so you
 RAG gives an LLM relevant facts at question time instead of relying only on what it memorised in training.
 The steps: embed the question, retrieve the most similar stored notes, and paste them into the prompt.
 This lets a model answer from your private or up-to-date data without retraining.
-This step covers the retrieval half; passing the matches to Claude (as in Step 1) is the generation half.
+This step covers the retrieval half; passing the matches to the LLM (as in Step 1) is the generation half.
 
 ## Step 3: Conversation history management (`history_management_poc.py`)
 
-Chats with Claude while keeping the full history, using a fake `MAX_TOKENS = 1000` (words) limit so the context window fills quickly. Commands: `history` (raw messages), `quit`.
+Chats with the LLM while keeping the full history, using a fake `MAX_TOKENS = 1000` (words) limit so the context window fills quickly. Commands: `history` (raw messages), `quit`.
 
 ```
-export ANTHROPIC_API_KEY=sk-ant-...
 python history_management_poc.py
 ```
 
@@ -91,7 +103,6 @@ Combining both (a summary of the past plus a verbatim recent window) is a common
 Combines Steps 1-3 into one assistant: tools, persistent vector memory (the same `notes` ChromaDB collection as Step 2), and auto-summarized history.
 
 ```
-export ANTHROPIC_API_KEY=sk-ant-...
 python orchestrator_poc.py
 ```
 

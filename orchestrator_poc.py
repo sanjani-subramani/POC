@@ -4,11 +4,11 @@ import os
 import re
 import uuid
 
-import anthropic
 import chromadb
 from sentence_transformers import SentenceTransformer
 
-MODEL = "claude-sonnet-4-5"
+from llm_client import chat
+
 MAX_TOKENS = 1000  # fake context limit, measured in words
 KEEP_LAST = 4
 TOP_K = 2
@@ -65,18 +65,11 @@ def looks_like_fact(text):
 
 class Orchestrator:
     def __init__(self):
-        self.llm = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
         self.embedder = SentenceTransformer(EMBED_MODEL)
         db = chromadb.PersistentClient(path=DB_PATH)
         # same collection as vector_memory_poc.py
         self.memory = db.get_or_create_collection("notes", metadata={"hnsw:space": "cosine"})
         self.history = []  # only user/assistant text; tool exchanges stay within a turn
-
-    def call_llm(self, system, messages, tools=None):
-        kwargs = {"tools": tools} if tools else {}
-        return self.llm.messages.create(
-            model=MODEL, max_tokens=1024, system=system, messages=messages, **kwargs
-        )
 
     def retrieve(self, text):
         print("--- RETRIEVE ---")
@@ -104,27 +97,22 @@ class Orchestrator:
 
     def run_tools(self, system, messages):
         """ReAct-style loop: call the model, run any requested tools, repeat until text."""
-        response = self.call_llm(system, messages, TOOLS)
-        while response.stop_reason == "tool_use":
-            messages.append({"role": "assistant", "content": response.content})
-            results = []
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
-                print("--- TOOL CALL ---")
-                print(f"{block.name}({json.dumps(block.input)})")
-                try:
-                    result, is_error = json.dumps(FUNCTIONS[block.name](**block.input)), False
-                except Exception as e:  # report failures back to the model
-                    result, is_error = f"Error: {e}", True
-                print(f"result: {result}")
-                results.append(
-                    {"type": "tool_result", "tool_use_id": block.id, "content": result, "is_error": is_error}
-                )
-            messages.append({"role": "user", "content": results})
+        response = chat(messages, system, TOOLS)
+        while response["type"] == "tool_use":
+            print("--- TOOL CALL ---")
+            print(f"{response['name']}({json.dumps(response['input'])})")
+            try:
+                result = json.dumps(FUNCTIONS[response["name"]](**response["input"]))
+            except Exception as e:  # report failures back to the model
+                result = f"Error: {e}"
+            print(f"result: {result}")
+            messages.append({"role": "assistant", "tool_call": {
+                "id": response["id"], "name": response["name"], "input": response["input"]}})
+            messages.append({"role": "tool", "tool_call_id": response["id"],
+                             "name": response["name"], "content": result})
             print("--- LLM CALL --- (with tool results)")
-            response = self.call_llm(system, messages, TOOLS)
-        return "".join(b.text for b in response.content if b.type == "text")
+            response = chat(messages, system, TOOLS)
+        return response["content"]
 
     def store(self, text):
         print("--- STORE ---")
@@ -141,9 +129,9 @@ class Orchestrator:
     def check_history(self):
         if count_words(self.history) > MAX_TOKENS and len(self.history) > KEEP_LAST:
             old, recent = self.history[:-KEEP_LAST], self.history[-KEEP_LAST:]
-            summary = self.call_llm(
-                "You summarize conversations.", old + [{"role": "user", "content": SUMMARY_PROMPT}]
-            ).content[0].text
+            summary = chat(
+                old + [{"role": "user", "content": SUMMARY_PROMPT}], "You summarize conversations."
+            )["content"]
             self.history = [
                 {"role": "user", "content": f"[SUMMARY OF EARLIER CONVERSATION]: {summary}"}
             ] + recent
@@ -162,7 +150,7 @@ class Orchestrator:
         print(f"{len(self.history)} messages | {count_words(self.history)} words")
         try:
             reply = self.run_tools(system, list(self.history))
-        except anthropic.APIError as e:
+        except Exception as e:
             self.history.pop()  # keep roles alternating
             print(f"API error: {e}")
             return
