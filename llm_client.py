@@ -15,9 +15,13 @@ chat() returns {"type": "text", "content": str}
 import json
 import uuid
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
-GEMINI_MODEL = "gemini-2.0-flash"
+GROQ_MODEL = "llama-3.1-8b-instant"
+GEMINI_MODEL = "gemini-3.6-flash"
 MAX_OUTPUT_TOKENS = 1024
+
+# Gemini thinking models attach a thought_signature to function-call parts and require it
+# back when the call is replayed with its result. Keyed by tool-call id.
+_thought_signatures = {}
 
 
 # ---------- Groq (OpenAI-compatible chat completions) ----------
@@ -85,6 +89,7 @@ def _gemini_contents(messages):
         elif "tool_call" in m:
             tc = m["tool_call"]
             part = types.Part.from_function_call(name=tc["name"], args=tc["input"])
+            part.thought_signature = _thought_signatures.get(tc["id"])
             contents.append(types.Content(role="model", parts=[part]))
         else:
             role = "model" if m["role"] == "assistant" else "user"
@@ -108,6 +113,9 @@ def _chat_gemini(messages, system_prompt, tools):
         ])]
         # we run the tool loop ourselves
         config["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
+    # Option A: turn thinking off so no thought signatures are needed. Option B (below) still
+    # replays any signature the model returns, for models that cannot disable thinking.
+    config["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
     resp = client.models.generate_content(
         model=GEMINI_MODEL,
         contents=_gemini_contents(messages),
@@ -115,11 +123,16 @@ def _chat_gemini(messages, system_prompt, tools):
     )
     if resp.function_calls:
         call = resp.function_calls[0]
+        call_id = call.id or f"call_{uuid.uuid4().hex[:8]}"
+        for part in resp.candidates[0].content.parts:
+            if part.function_call is not None and part.thought_signature:
+                _thought_signatures[call_id] = part.thought_signature
+                break
         return {
             "type": "tool_use",
             "name": call.name,
             "input": dict(call.args or {}),
-            "id": call.id or f"call_{uuid.uuid4().hex[:8]}",
+            "id": call_id,
         }
     return {"type": "text", "content": resp.text or ""}
 
