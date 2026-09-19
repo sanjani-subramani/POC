@@ -1,4 +1,4 @@
-"""Minimal tool-calling POC (Groq primary, Gemini fallback): interactive loop with two fake tools."""
+"""Minimal tool-calling POC (Gemini): interactive loop with two fake tools."""
 import json
 
 from llm_client import chat
