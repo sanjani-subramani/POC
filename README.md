@@ -122,3 +122,30 @@ Tools add live actions and data, such as weather or note search, that the model 
 History adds short-term context, and summarization keeps it under the word limit while preserving key facts.
 After the answer, a simple heuristic (the message contains "I", "my", "we" or "our") stores the user's message as a new memory, so later sessions can recall it.
 That heuristic is deliberately crude: it also saves questions like "What is my name?", so a real system would use a smarter filter.
+
+## How to run
+
+```
+pip install -r requirements.txt
+python main.py
+```
+
+Set `GEMINI_API_KEY` first (see Setup above). This is the final assistant; Steps 1-4 are the building blocks it is made from.
+
+## Step 5: Unified assistant (`main.py`)
+
+`main.py` prints a flow diagram on startup, then runs a six-stage pipeline on every message, labelled `[1/6 RETRIEVE]` through `[6/6 HISTORY]`:
+
+1. **RETRIEVE**: embed the message and fetch the top 2 similar memories from the shared `notes` ChromaDB collection.
+2. **PROMPT**: inject those memories into the system prompt under `RELEVANT MEMORIES:`.
+3. **LLM**: send the system prompt, history and tool definitions to Gemini through `llm_client.py`.
+4. **TOOLS**: if the model asks for a tool, run it, send back the result and call again until it returns text.
+5. **EXTRACT**: a second LLM call asks the model to return a JSON array of personal facts worth remembering. Each fact is embedded and stored, skipping near-duplicates of existing memories.
+6. **HISTORY**: if history exceeds 1000 words, everything except the last 4 messages is summarized into one message.
+
+Commands: `memories` (list all), `history` (raw messages), `clear` (delete all memories, asks to confirm), `quit`.
+
+### LLM-powered extraction vs. the keyword heuristic
+Step 4 saved any message containing "I", "my", "we" or "our", which also saved questions and stored whole sentences.
+Step 5 asks the model what is actually worth remembering, so "My name is Sanjani and I study computer science" becomes short facts like "Name is Sanjani", and questions or small talk save nothing.
+The cost is one extra LLM call per turn. On the Gemini free tier (a few requests per minute) a turn that uses a tool can hit the rate limit; if the extraction call fails, the turn still completes and simply saves nothing.
