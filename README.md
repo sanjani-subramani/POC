@@ -38,7 +38,7 @@ Each step is printed: `USER`, `MODEL CHOSE TOOL`, `TOOL RESULT`, `FINAL RESPONSE
 
 ## Notes
 
-- Models are set in `llm_client.py`: `llama-3.3-70b-versatile` (Groq) and `gemini-2.0-flash` (Gemini).
+- Models are set in `llm_client.py`: `llama-3.1-8b-instant` (Groq) and `gemini-3.6-flash` (Gemini).
 - Conversation history is kept across turns within a session.
 
 ## Step 2: Vector memory (`vector_memory_poc.py`)
