@@ -1,21 +1,17 @@
 # Tool Calling POC
 
-A minimal command-line demo of LLM **tool calling** (function calling) with a free LLM API: Groq as the primary provider and Google Gemini as the fallback (see `llm_client.py`).
+A minimal command-line demo of LLM **tool calling** (function calling) with Google Gemini's free API (see `llm_client.py`).
 
 ## Setup (all scripts)
 
-Both providers have a free tier, no credit card needed. Create a key at each:
-
-- **Groq** (primary): https://console.groq.com -> `GROQ_API_KEY`
-- **Gemini** (fallback): https://aistudio.google.com -> `GEMINI_API_KEY`
+The Gemini API has a free tier, no credit card needed. Create a key at https://aistudio.google.com and set `GEMINI_API_KEY`:
 
 ```
 pip install -r requirements.txt
-export GROQ_API_KEY=gsk_...          # PowerShell: $env:GROQ_API_KEY="gsk_..."
 export GEMINI_API_KEY=AI...          # PowerShell: $env:GEMINI_API_KEY="AI..."
 ```
 
-`llm_client.py` exposes `chat(messages, system_prompt=None, tools=None)`. It tries Groq first and, on any error (rate limit, bad request, missing key), retries on Gemini. Each call prints `PROVIDER: Groq` or `PROVIDER: Gemini (fallback)`. Both providers' tool calling is normalized to `{"type": "text", "content": ...}` or `{"type": "tool_use", "name": ..., "input": ..., "id": ...}`. Only one tool call is handled per model response. Free-tier limits are small, so rate limits are the usual reason the fallback fires.
+`llm_client.py` exposes `chat(messages, system_prompt=None, tools=None)`, which calls Gemini and prints `PROVIDER: Gemini`. Responses are normalized to `{"type": "text", "content": ...}` or `{"type": "tool_use", "name": ..., "input": ..., "id": ...}`. Only one tool call is handled per model response. Free-tier limits are small, so rate-limit errors are possible.
 
 ## What it demonstrates
 
@@ -38,7 +34,7 @@ Each step is printed: `USER`, `MODEL CHOSE TOOL`, `TOOL RESULT`, `FINAL RESPONSE
 
 ## Notes
 
-- Models are set in `llm_client.py`: `llama-3.1-8b-instant` (Groq) and `gemini-3.6-flash` (Gemini).
+- The model is set in `llm_client.py` (`gemini-3.6-flash`).
 - Conversation history is kept across turns within a session.
 
 ## Step 2: Vector memory (`vector_memory_poc.py`)
